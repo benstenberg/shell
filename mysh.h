@@ -91,7 +91,7 @@ int parse_args_main(int argc, char **argv);
  *   0 on success
  *   Negative value on error
  */
-int batch_mode(void);
+int batch_mode(char **files, int num_files);
 
 /*
  * Main routine for interactive mode
@@ -188,5 +188,7 @@ int builtin_fg(void);
  *   Negative value on error
  */
 int builtin_fg_num(int job_num);
+
+int parse_line(char *line);
 
 #endif /* MYSHELL_H */
