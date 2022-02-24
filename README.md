@@ -2,12 +2,12 @@
 
 ## Author(s):
 
-TODO
+Ben Stenberg
 
 
 ## Date:
 
-TODO
+Last Modified: 2/24/2022
 
 
 ## Description:
@@ -17,7 +17,7 @@ TODO
 
 ## How to build the software
 
-TODO
+Type "make" to compile the software.
 
 
 ## How to use the software
