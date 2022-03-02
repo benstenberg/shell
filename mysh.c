@@ -7,8 +7,9 @@
 #include "mysh.h"
 
 int main(int argc, char * argv[]) {
-  int ret, i;
-  char **files = NULL;
+    int ret, i;
+    char **files = NULL;
+  
 
     /*
      * Parse Command line arguments to check if this is an interactive or batch
@@ -70,7 +71,7 @@ int main(int argc, char * argv[]) {
     /*
      * Cleanup
      */
-
+    free_history();
 
     return 0;
 }
@@ -158,6 +159,7 @@ int interactive_mode(void)
     char *buffer = NULL;
     size_t buffersize = MAX_COMMAND_LINE;
     size_t characters;
+    char str[MAX_COMMAND_LINE];
 
     /*
      * Allocate buffer for reading input
@@ -172,23 +174,24 @@ int interactive_mode(void)
         /*
          * Print the prompt
          */
-        printf("%s", PROMPT);
+        printf("\x1B[36m%s\x1B[0m", PROMPT);
         
         /*
          * Read stdin, break out of loop if Ctrl-D
          */
         characters = getline(&buffer, &buffersize, stdin);
-        
+        if(characters == 0) {
+            continue;
+         }
 
         /* Strip off the newline */
-        
+        strcpy(str, buffer);
+        str[characters-1] = '\0';
+        buffer = strdup(str);
 
         /*
          * Parse and execute the command
          */
-         if(characters == 0) {
-            continue;
-         }
          parse_line(buffer);
 
     
@@ -208,49 +211,93 @@ int parse_line(char *line) {
     /*
      * Loop through all commands in line, separated by ; or &
      */
-    char *command = strtok(line, ";&");
+    char *command = strtok(line, ";");
     while(command != NULL) {
-        //printf("%s", command);
         if(strcmp(command, "exit") == 0) {
             builtin_exit();
+            insert_node("exit");
             goto CONTINUE;
         }
         else if(strcmp(command, "jobs") == 0) {
             builtin_jobs();
+            insert_node("jobs");
             goto CONTINUE;
         }
         else if(strcmp(command, "history") == 0) {
+            insert_node("history");
             builtin_history();
             goto CONTINUE;
         }
         else if(strcmp(command, "wait") == 0) {
             builtin_wait();
+            insert_node("wait");
             goto CONTINUE;
         }
         else if(strcmp(command, "fg") == 0) {
             builtin_fg();
+            insert_node("fg");
             goto CONTINUE;
         }
         else if(strncmp(command, "fg ", 3) == 0) {
+            // NEEDS REVISION
             char * args = strtok(command, " ");
             args = strtok(NULL, " ");
             builtin_fg_num(atoi(args));
+            // insert_node(?)
             goto CONTINUE;
         }
         else {
             // build job_t
-            job_t *job = (job_t *)malloc(sizeof(job_t));
-            job->full_command = strdup(command); 
-            //job->argc =
-            //job->argv = 
-            //job->is_background =
-            //job->binary = 
+            job_t *job = build_job(command);
+            insert_node(strdup(job->full_command));
             launch_job(job);
         }
 
-        CONTINUE: command = strtok(NULL, ";&");
+        CONTINUE: command = strtok(NULL, ";");
     }
     return 0;
+}
+
+job_t* build_job(char *command) {
+    job_t *job = (job_t *)malloc(sizeof(job_t));
+    
+    // copy to use in strtok
+    char* copy = strdup(command);
+    
+    // initialize
+    job->full_command = strdup(command); 
+    job->argc = 0;
+    job->argv = NULL;
+    job->is_background = FALSE;
+    job->binary = NULL;
+
+    // fill in job info on first pass
+    char *cur = strtok(copy, " ");
+    job->binary = strdup(cur);
+    while(cur != NULL) {
+        if(strcmp(cur, "&") == 0) {
+            job->is_background = TRUE;
+            cur = strtok(NULL, " ");
+            continue;
+        }
+        job->argc = job->argc+1;
+        cur = strtok(NULL, " ");
+    }
+
+    // reset copy
+    strcpy(copy, command);
+
+    // create argv on second pass
+    char **argv = (char**)malloc(sizeof(char*)*job->argc);
+    cur = strtok(copy, " ");
+    for(int i = 0; i < job->argc; i++) {
+        argv[i] = strdup(cur);
+        cur = strtok(NULL, " ");
+    }
+    job->argv = argv;
+ 
+    copy = NULL;
+    return job;
 }
 
 /*
@@ -260,15 +307,46 @@ int parse_line(char *line) {
 
 int launch_job(job_t * loc_job)
 {
+    pid_t c_pid = 0;
 
     /*
      * Display the job
      */
-
+    /*printf("Full command: %s\n", loc_job->full_command);
+    printf("argc: %d\n", loc_job->argc);
+    printf("binary: %s\n", loc_job->binary);
+    for(int i = 0; i < loc_job->argc; i++) {
+        printf("argv[%d]: %s\n", i, loc_job->argv[i]);
+    }
+    printf("isBackground: %d\n", loc_job->is_background);
+    */
 
     /*
      * Launch the job in either the foreground or background
      */
+    /* fork child process */
+    c_pid = fork();
+    
+    /* error */
+     if(c_pid < 0) {
+        fprintf(stderr, "Error: Fork failed!\n");
+        return -1;
+     }
+     /* child */
+     else if(c_pid == 0) {
+        execvp(loc_job->binary, loc_job->argv);
+        fprintf(stderr, "--mysh: Invalid command!\n");
+        exit(-1);
+     }
+     /* parent */
+     else {
+        if(loc_job->is_background == TRUE) {
+            waitpid(c_pid, NULL, WNOHANG);
+        }
+        else {
+            waitpid(c_pid, NULL, 0);
+        }
+     }
 
     /*
      * Some accounting
@@ -280,7 +358,8 @@ int launch_job(job_t * loc_job)
 
 int builtin_exit(void)
 {
-
+    builtin_wait();
+    exit(0);
     return 0;
 }
 
@@ -292,6 +371,14 @@ int builtin_jobs(void)
 
 int builtin_history(void)
 {
+    // print linked list of commands
+    node *cur = head;
+    int i = 1;
+    while(cur != NULL) {
+        printf("%d  %s\n", i, cur->job);
+        i++;
+        cur = cur->next;
+    }
 
     return 0;
 }
@@ -310,6 +397,47 @@ int builtin_fg(void)
 
 int builtin_fg_num(int job_num)
 {
+
+    return 0;
+}
+
+int insert_node(char *command) {
+    // make node
+    node *new = (node*)malloc(sizeof(node));
+    new->job = strdup(command);
+    new->next = NULL;
+
+    // initialize
+    if(head == NULL) {
+        head = new;
+    }
+    else {
+        // get to end of linked list
+        node *cur = head;
+        while(cur->next != NULL) {
+            cur = cur->next;
+        }
+
+        // set pointer
+        cur->next = new;
+    }
+
+    return 0;
+}
+
+int free_history() {
+    // go down list and free nodes
+    node *cur = head;
+    node *next = NULL;
+
+    while(cur->next != NULL) {
+        next = cur->next;
+        free(cur);
+        cur = next;
+    }
+
+    head = NULL;
+    next = NULL;
 
     return 0;
 }

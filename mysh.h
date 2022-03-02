@@ -1,5 +1,5 @@
 /*
- * [YOUR NAME HERE]
+ * Ben Stenberg
  *
  * CS441/541: Project 3
  *
@@ -43,6 +43,16 @@ struct job_t {
 };
 typedef struct job_t job_t;
 
+/*
+ * Linked List Node
+ */
+struct node {
+    char *job;
+    struct node *next;
+};
+ typedef struct node node;
+
+
 /******************************
  * Global Variables
  ******************************/
@@ -64,6 +74,11 @@ int total_history = 0;
  * Debugging mode
  */
 int is_debug = TRUE;
+
+/*
+ * Linked List of Jobs
+ */
+node *head = NULL;
 
 /******************************
  * Function declarations
@@ -190,5 +205,11 @@ int builtin_fg(void);
 int builtin_fg_num(int job_num);
 
 int parse_line(char *line);
+
+job_t* build_job(char *command);
+
+int insert_node(char *command);
+
+int free_history();
 
 #endif /* MYSHELL_H */
