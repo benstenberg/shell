@@ -40,6 +40,8 @@ struct job_t {
     char **argv;
     int is_background;
     char * binary;
+    char *status;  // Running -> Done 
+    int pid;
 };
 typedef struct job_t job_t;
 
@@ -47,7 +49,7 @@ typedef struct job_t job_t;
  * Linked List Node
  */
 struct node {
-    char *job;
+    job_t *job;
     struct node *next;
 };
  typedef struct node node;
@@ -61,6 +63,7 @@ struct node {
  * Interactive or batch mode
  */
 int is_batch = FALSE;
+int to_exit = FALSE;
 
 /*
  * Counts
@@ -69,6 +72,7 @@ int total_jobs_display_ctr = 0;
 int total_jobs    = 0;
 int total_jobs_bg = 0;
 int total_history = 0;
+int current_jobs_bg = 0;
 
 /*
  * Debugging mode
@@ -78,7 +82,8 @@ int is_debug = TRUE;
 /*
  * Linked List of Jobs
  */
-node *head = NULL;
+node *history_head = NULL;
+node *jobs_head = NULL;
 
 /******************************
  * Function declarations
@@ -208,8 +213,12 @@ int parse_line(char *line);
 
 job_t* build_job(char *command);
 
-int insert_node(char *command);
+int insert_node(job_t *job, node **head);
 
-int free_history();
+int free_list(node **head);
+
+int remove_node(int job_num);
+
+int check_bg();
 
 #endif /* MYSHELL_H */

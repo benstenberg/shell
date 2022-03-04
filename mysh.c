@@ -71,7 +71,8 @@ int main(int argc, char * argv[]) {
     /*
      * Cleanup
      */
-    free_history();
+    free_list(&history_head);
+    free_list(&jobs_head);
 
     return 0;
 }
@@ -192,11 +193,12 @@ int interactive_mode(void)
         /*
          * Parse and execute the command
          */
+         check_bg();
          parse_line(buffer);
 
     
        
-    } while( 1/* end condition */);
+    } while(to_exit == FALSE);
 
     /*
      * Cleanup
@@ -209,34 +211,33 @@ int interactive_mode(void)
 
 int parse_line(char *line) {
     /*
-     * Loop through all commands in line, separated by ; or &
+     * Loop through all commands in line, separated by ;
      */
-    char *command = strtok(line, ";");
+    
+    char *save = NULL;
+    char *command = strtok_r(line, ";", &save);
+
     while(command != NULL) {
+        //printf("%s\n", command);
         if(strcmp(command, "exit") == 0) {
             builtin_exit();
-            insert_node("exit");
-            goto CONTINUE;
+            insert_node(build_job("exit"), &history_head);
         }
         else if(strcmp(command, "jobs") == 0) {
             builtin_jobs();
-            insert_node("jobs");
-            goto CONTINUE;
+            insert_node(build_job("jobs"), &history_head);
         }
         else if(strcmp(command, "history") == 0) {
-            insert_node("history");
+            insert_node(build_job("history"), &history_head);
             builtin_history();
-            goto CONTINUE;
         }
         else if(strcmp(command, "wait") == 0) {
             builtin_wait();
-            insert_node("wait");
-            goto CONTINUE;
+            insert_node(build_job("wait"), &history_head);
         }
         else if(strcmp(command, "fg") == 0) {
             builtin_fg();
-            insert_node("fg");
-            goto CONTINUE;
+            insert_node(build_job("fg"), &history_head);
         }
         else if(strncmp(command, "fg ", 3) == 0) {
             // NEEDS REVISION
@@ -244,19 +245,18 @@ int parse_line(char *line) {
             args = strtok(NULL, " ");
             builtin_fg_num(atoi(args));
             // insert_node(?)
-            goto CONTINUE;
         }
         else {
             // build job_t
             job_t *job = build_job(command);
-            insert_node(strdup(job->full_command));
+            insert_node(job, &history_head);
             launch_job(job);
-        }
-
-        CONTINUE: command = strtok(NULL, ";");
+        } 
+        command = strtok_r(NULL, ";", &save);
     }
     return 0;
 }
+
 
 job_t* build_job(char *command) {
     job_t *job = (job_t *)malloc(sizeof(job_t));
@@ -270,6 +270,8 @@ job_t* build_job(char *command) {
     job->argv = NULL;
     job->is_background = FALSE;
     job->binary = NULL;
+    job->status = NULL;
+    job->pid = 0;
 
     // fill in job info on first pass
     char *cur = strtok(copy, " ");
@@ -288,12 +290,13 @@ job_t* build_job(char *command) {
     strcpy(copy, command);
 
     // create argv on second pass
-    char **argv = (char**)malloc(sizeof(char*)*job->argc);
+    char **argv = (char**)malloc(sizeof(char*)*job->argc+1);
     cur = strtok(copy, " ");
     for(int i = 0; i < job->argc; i++) {
         argv[i] = strdup(cur);
         cur = strtok(NULL, " ");
     }
+    argv[job->argc] = NULL;
     job->argv = argv;
  
     copy = NULL;
@@ -342,40 +345,65 @@ int launch_job(job_t * loc_job)
      else {
         if(loc_job->is_background == TRUE) {
             waitpid(c_pid, NULL, WNOHANG);
+            loc_job->pid = c_pid;
+            insert_node(loc_job, &jobs_head);
+            current_jobs_bg++;
         }
         else {
             waitpid(c_pid, NULL, 0);
         }
      }
-
     /*
      * Some accounting
      */
-     free(loc_job);
+    
 
     return 0;
 }
 
 int builtin_exit(void)
 {
-    builtin_wait();
-    exit(0);
+    // wait for all jobs to finish then exit
+    if(current_jobs_bg > 0) {
+        printf("Waiting on %d jobs before exiting.\n", current_jobs_bg);
+        builtin_wait();
+    }
+    to_exit = TRUE;
     return 0;
 }
 
 int builtin_jobs(void)
 {
+    // print background jobs in list
+    node *cur = jobs_head;
+    node *next = NULL;
+    int i = 1;
 
+    if(cur == NULL) {
+        return 0;
+    }
+    while(cur != NULL) {
+        // print
+        printf("[%d]  %s  %s\n", i, cur->job->status, cur->job->full_command);
+        // remove finished jobs once viewed
+        next = cur->next;
+        if(strcmp(cur->job->status, "Done") == 0) {
+            remove_node(cur->job->pid);
+            current_jobs_bg--;
+        }
+        i++;
+        cur = next;
+    }
     return 0;
 }
 
 int builtin_history(void)
 {
     // print linked list of commands
-    node *cur = head;
+    node *cur = history_head;
     int i = 1;
     while(cur != NULL) {
-        printf("%d  %s\n", i, cur->job);
+        printf("%d  %s\n", i, cur->job->full_command);
         i++;
         cur = cur->next;
     }
@@ -385,59 +413,159 @@ int builtin_history(void)
 
 int builtin_wait(void)
 {
+    node *cur = jobs_head;
+
+    if(cur == NULL) {
+        return 0;
+    }
+
+    while(cur != NULL) {
+        // wait
+        waitpid(cur->job->pid, NULL, 0);
+        // mark as done
+        cur->job->status = "Done";
+        cur = cur->next;
+    }
 
     return 0;
 }
 
 int builtin_fg(void)
 {
+    // wait on background job
+    // go to end of jobs list for most recent process
+    node *cur = jobs_head;
+    if(cur == NULL) {
+        fprintf(stderr, "--mysh: no such job!\n");
+        return -1;
+    }
 
+    while(cur->next != NULL) {
+        cur = cur->next;
+    }
+
+    // pass pid
+    builtin_fg_num(cur->job->pid);
     return 0;
 }
 
 int builtin_fg_num(int job_num)
 {
-
-    return 0;
+    // wait on pid
+    if(waitpid(job_num, NULL, 0) > 0) {
+        // remove node from list
+        remove_node(job_num);
+        current_jobs_bg--;
+        return 0;
+    }
+    fprintf(stderr, "--mysh: no such job!\n");
+    return -1;
 }
 
-int insert_node(char *command) {
+int insert_node(job_t *job, node **head) {
     // make node
     node *new = (node*)malloc(sizeof(node));
-    new->job = strdup(command);
+    new->job = job;
     new->next = NULL;
+    new->job->status = "Running";
 
     // initialize
-    if(head == NULL) {
-        head = new;
+    if(*head == NULL) {
+        *head = new;
+        //printf("First node\n");
     }
     else {
         // get to end of linked list
-        node *cur = head;
+        node *cur = *head;
         while(cur->next != NULL) {
             cur = cur->next;
         }
 
         // set pointer
         cur->next = new;
+        //printf("Next node\n");
+    }
+
+    if(*head == history_head) {
+        total_history++;
+    }
+    else if(*head == jobs_head) {
+        total_jobs_bg++;
     }
 
     return 0;
 }
 
-int free_history() {
-    // go down list and free nodes
-    node *cur = head;
-    node *next = NULL;
 
-    while(cur->next != NULL) {
-        next = cur->next;
-        free(cur);
-        cur = next;
+int free_list(node **head) {
+    // go down list and free nodes
+    if(head != NULL) {
+        node *cur = *head;
+        node *next = NULL;
+
+        while(cur != NULL) {
+            next = cur->next;
+            free(cur->job);
+            free(cur);
+            cur = next;
+        }
+  
+        *head = NULL;
+        next = NULL;
+    }
+    return 0;
+}
+
+int remove_node(int job_num) {
+    // remove node
+    node *cur = jobs_head;
+    node *prev = NULL;
+    
+    if(cur == NULL) {
+        return -1;
     }
 
-    head = NULL;
-    next = NULL;
+    // target is head
+    if(cur->job->pid == job_num) {
+        jobs_head = cur->next;
+        free(cur->job);
+        free(cur);
+        return 0;
+    }
 
+    // find node
+    while(cur != NULL && cur->job->pid != job_num) {
+        prev = cur;
+        cur = cur->next;
+    }
+
+    // not found
+    if(cur == NULL) {
+        return -1;
+    }   
+        
+    // set pointer, free
+    prev->next = cur->next;
+    free(cur->job);
+    free(cur);
+    return 0;
+}
+
+int check_bg() {
+    // check if any background jobs have completed
+    node *cur = jobs_head;
+    int status;
+
+    if(cur == NULL) {
+        return 0;
+    }
+
+    while(cur != NULL) {
+        status = waitpid(cur->job->pid, NULL, WNOHANG);
+        if(status != 0) {
+            cur->job->status = "Done";
+        }
+        cur = cur->next;
+    }
     return 0;
 }
