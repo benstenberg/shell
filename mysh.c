@@ -224,13 +224,42 @@ int parse_line(char *line) {
     /*
      * Loop through all commands in line, separated by ;
      */
+    char block[strlen(line)];
+    char tmp[strlen(line)];
     
     char *save = NULL;
+    // split first on chunks separated by ;
     char *command = strtok_r(line, ";", &save);
 
     while(command != NULL) {
-        //printf("%s\n", command);
-        if(strcmp(command, "exit") == 0) {
+        // within that chunk go until/if you find &
+        strcpy(block, command);
+        strcpy(tmp, "");
+
+        for(int i = 0; i < strlen(command); i++) {
+            if(block[i] == '&') {
+                do_command(tmp, TRUE);
+                strcpy(tmp, "");
+            }
+            else {
+                strncat(tmp, &block[i], 1);
+            }
+        }
+
+        // if there's something in temp still, run it
+        if(strcmp(tmp, "") != 0) {
+            do_command(tmp, FALSE);
+            strcpy(tmp, "");
+        }
+        
+        // next block
+        command = strtok_r(NULL, ";", &save);
+    }
+    return 0;
+}
+
+int do_command(char *command, int is_bg) {
+    if(strcmp(command, "exit") == 0) {
             builtin_exit();
             insert_history("exit");
         }
@@ -257,18 +286,17 @@ int parse_line(char *line) {
             insert_history(strdup(command));
         }
         else {
-            // build job_t
-            job_t *job = build_job(command);
+            /*
+             * Build a job
+             */
+            job_t *job = build_job(command, is_bg);
             insert_history(strdup(job->full_command));
             launch_job(job);
         } 
-        command = strtok_r(NULL, ";", &save);
-    }
     return 0;
 }
 
-
-job_t* build_job(char *command) {
+job_t* build_job(char *command, int is_bg) {
     job_t *job = (job_t *)malloc(sizeof(job_t));
     char* copy = strdup(command);
     
@@ -278,7 +306,7 @@ job_t* build_job(char *command) {
     job->full_command = strdup(command); 
     job->argc = 0;
     job->argv = NULL;
-    job->is_background = FALSE;
+    job->is_background = is_bg;
     job->binary = NULL;
     job->status = NULL;
     job->pid = 0;
@@ -289,11 +317,6 @@ job_t* build_job(char *command) {
     char *cur = strtok(copy, " ");
     job->binary = strdup(cur);
     while(cur != NULL) {
-        if(strcmp(cur, "&") == 0) {
-            job->is_background = TRUE;
-            cur = strtok(NULL, " ");
-            continue;
-        }
         job->argc = job->argc+1;
         cur = strtok(NULL, " ");
     }
@@ -360,6 +383,7 @@ int builtin_exit(void)
     /*
      * Wait for bg processes to finish, then exit
      */
+    check_bg();
     if(current_jobs_bg > 0) {
         printf("Waiting on %d jobs before exiting.\n", current_jobs_bg);
         builtin_wait();
@@ -390,7 +414,7 @@ int builtin_jobs(void)
         next = cur->next;
         if(strcmp(cur->job->status, "Done") == 0) {
             remove_node(cur->job->pid);
-            current_jobs_bg--;
+            //current_jobs_bg--;
         }
         i++;
         cur = next;
@@ -659,7 +683,8 @@ int check_bg() {
     while(cur != NULL) {
         status = waitpid(cur->job->pid, NULL, WNOHANG);
         if(status > 0) {
-            cur->job->status = "Done";   
+            cur->job->status = "Done";
+            current_jobs_bg--;   
         }
         else {
             return -1;

@@ -238,7 +238,7 @@ int parse_line(char *line);
  *   Built job struct
  *   Negative value on error
  */
-job_t* build_job(char *command);
+job_t* build_job(char *command, int is_bg);
 
 /*
  * Insert jobnode into list
@@ -323,5 +323,7 @@ int check_bg();
  *   Negative value on error
  */
 int is_blank(char *line);
+
+int do_command(char *command, int is_bg);
 
 #endif /* MYSHELL_H */
