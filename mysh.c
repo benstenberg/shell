@@ -9,7 +9,6 @@
 int main(int argc, char * argv[]) {
     int ret, i;
     char **files = NULL;
-  
 
     /*
      * Parse Command line arguments to check if this is an interactive or batch
@@ -28,7 +27,9 @@ int main(int argc, char * argv[]) {
             printf("Batch Mode!\n");
         }
 
-        // get array of files
+        /*
+         * Get array of filenames
+         */
         files = (char**)malloc((argc-1) * sizeof(char*));
         for(i = 0; i < argc-1; i++) {
             files[i] = argv[i+1];
@@ -71,8 +72,8 @@ int main(int argc, char * argv[]) {
     /*
      * Cleanup
      */
-    free_list(&history_head);
-    free_list(&jobs_head);
+    free_history();
+    free_jobs();
 
     return 0;
 }
@@ -85,7 +86,8 @@ int parse_args_main(int argc, char **argv)
      * mode run.
      */
     if(argc == 1) {
-         is_batch = FALSE;
+        is_batch = FALSE;
+        return 0;
     }
 
     /*
@@ -93,9 +95,10 @@ int parse_args_main(int argc, char **argv)
      */
     if(argc > 1) {
         is_batch = TRUE;
+        return 0;
     }
 
-    return 0;
+    return -1;
 }
 
 int batch_mode(char **files, int num_files)
@@ -105,24 +108,19 @@ int batch_mode(char **files, int num_files)
     char *buffer = NULL;
     size_t buffersize = MAX_COMMAND_LINE;
     size_t characters;
+    char str[MAX_COMMAND_LINE];
 
     /*
      * For each file...
      */
     for(i = 0; i < num_files; i++) {
-            /*
+        /*
          * Open the batch file
          * If there was an error then print a message and move on to the next file.
-         * Otherwise, 
-         *   - Read one line at a time.
-         *   - strip off new line
-         *   - parse and execute
-         * Close the file
          */
-        printf("%s\n", files[i]);
         infile = fopen(files[i], "r");
         if(infile == NULL) {
-            printf("Unable to open file\n");
+            printf("Unable to open file: %s\n", files[i]);
             continue;
         }
 
@@ -135,23 +133,39 @@ int batch_mode(char **files, int num_files)
             return(-1);
         }
 
-        do {
+        /*
+         * Otherwise, 
+         *   - Read one line at a time.
+         *   - strip off new line
+         *   - parse and execute
+         */
+        characters = getline(&buffer, &buffersize, infile);
+        while(characters != -1) {
+            if(is_blank(buffer) == FALSE) {
+                strcpy(str, buffer);
+                str[characters-1] = '\0';
+                buffer = strdup(str);
+    
+                parse_line(buffer);
+            }
             characters = getline(&buffer, &buffersize, infile);
-            parse_line(buffer);
-        }      
-        while(characters != 0);
+        }
         
-
+        /*
+         * Close the file
+         */
         fclose(infile);
     }
-    
+    builtin_wait();
 
     /*
      * Cleanups
      */
-
-
     free(files);
+    infile = NULL;
+    files = NULL;
+    free_jobs();
+    free_history();
     return 0;
 }
 
@@ -181,9 +195,9 @@ int interactive_mode(void)
          * Read stdin, break out of loop if Ctrl-D
          */
         characters = getline(&buffer, &buffersize, stdin);
-        if(characters == 0) {
+        if(characters == 0 || is_blank(buffer) == TRUE) {
             continue;
-         }
+        }
 
         /* Strip off the newline */
         strcpy(str, buffer);
@@ -196,8 +210,6 @@ int interactive_mode(void)
          check_bg();
          parse_line(buffer);
 
-    
-       
     } while(to_exit == FALSE);
 
     /*
@@ -205,7 +217,6 @@ int interactive_mode(void)
      */
     free(buffer);
     buffer = NULL;
-
     return 0;
 }
 
@@ -221,35 +232,34 @@ int parse_line(char *line) {
         //printf("%s\n", command);
         if(strcmp(command, "exit") == 0) {
             builtin_exit();
-            insert_node(build_job("exit"), &history_head);
+            insert_history("exit");
         }
         else if(strcmp(command, "jobs") == 0) {
             builtin_jobs();
-            insert_node(build_job("jobs"), &history_head);
+            insert_history("jobs");
         }
         else if(strcmp(command, "history") == 0) {
-            insert_node(build_job("history"), &history_head);
+            insert_history("history");
             builtin_history();
         }
         else if(strcmp(command, "wait") == 0) {
             builtin_wait();
-            insert_node(build_job("wait"), &history_head);
+            insert_history("wait");
         }
         else if(strcmp(command, "fg") == 0) {
             builtin_fg();
-            insert_node(build_job("fg"), &history_head);
+            insert_history("fg");
         }
         else if(strncmp(command, "fg ", 3) == 0) {
-            // NEEDS REVISION
-            char * args = strtok(command, " ");
+            char * args = strtok(strdup(command), " ");
             args = strtok(NULL, " ");
             builtin_fg_num(atoi(args));
-            // insert_node(?)
+            insert_history(strdup(command));
         }
         else {
             // build job_t
             job_t *job = build_job(command);
-            insert_node(job, &history_head);
+            insert_history(strdup(job->full_command));
             launch_job(job);
         } 
         command = strtok_r(NULL, ";", &save);
@@ -260,11 +270,11 @@ int parse_line(char *line) {
 
 job_t* build_job(char *command) {
     job_t *job = (job_t *)malloc(sizeof(job_t));
-    
-    // copy to use in strtok
     char* copy = strdup(command);
     
-    // initialize
+    /*
+     * Initialize job struct
+     */
     job->full_command = strdup(command); 
     job->argc = 0;
     job->argv = NULL;
@@ -273,7 +283,9 @@ job_t* build_job(char *command) {
     job->status = NULL;
     job->pid = 0;
 
-    // fill in job info on first pass
+    /*
+     * Populate job with data
+     */
     char *cur = strtok(copy, " ");
     job->binary = strdup(cur);
     while(cur != NULL) {
@@ -286,10 +298,14 @@ job_t* build_job(char *command) {
         cur = strtok(NULL, " ");
     }
 
-    // reset copy
+    /*
+     * Reset string
+     */
     strcpy(copy, command);
 
-    // create argv on second pass
+    /*
+     * Create argv
+     */
     char **argv = (char**)malloc(sizeof(char*)*job->argc+1);
     cur = strtok(copy, " ");
     for(int i = 0; i < job->argc; i++) {
@@ -303,30 +319,11 @@ job_t* build_job(char *command) {
     return job;
 }
 
-/*
- * You will want one or more helper functions for parsing the commands 
- * and then call the following functions to execute them
- */
 
 int launch_job(job_t * loc_job)
 {
     pid_t c_pid = 0;
 
-    /*
-     * Display the job
-     */
-    /*printf("Full command: %s\n", loc_job->full_command);
-    printf("argc: %d\n", loc_job->argc);
-    printf("binary: %s\n", loc_job->binary);
-    for(int i = 0; i < loc_job->argc; i++) {
-        printf("argv[%d]: %s\n", i, loc_job->argv[i]);
-    }
-    printf("isBackground: %d\n", loc_job->is_background);
-    */
-
-    /*
-     * Launch the job in either the foreground or background
-     */
     /* fork child process */
     c_pid = fork();
     
@@ -346,24 +343,23 @@ int launch_job(job_t * loc_job)
         if(loc_job->is_background == TRUE) {
             waitpid(c_pid, NULL, WNOHANG);
             loc_job->pid = c_pid;
-            insert_node(loc_job, &jobs_head);
+            insert_job(loc_job);
             current_jobs_bg++;
         }
         else {
             waitpid(c_pid, NULL, 0);
         }
+        total_jobs++;
      }
-    /*
-     * Some accounting
-     */
-    
 
     return 0;
 }
 
 int builtin_exit(void)
 {
-    // wait for all jobs to finish then exit
+    /*
+     * Wait for bg processes to finish, then exit
+     */
     if(current_jobs_bg > 0) {
         printf("Waiting on %d jobs before exiting.\n", current_jobs_bg);
         builtin_wait();
@@ -374,18 +370,23 @@ int builtin_exit(void)
 
 int builtin_jobs(void)
 {
-    // print background jobs in list
-    node *cur = jobs_head;
-    node *next = NULL;
+    jobnode *cur = jobs_head;
+    jobnode *next = NULL;
     int i = 1;
 
+    /*
+     * No background jobs in list
+     */
     if(cur == NULL) {
         return 0;
     }
+
     while(cur != NULL) {
-        // print
         printf("[%d]  %s  %s\n", i, cur->job->status, cur->job->full_command);
-        // remove finished jobs once viewed
+        
+        /*
+         * Remove jobs once viewed
+         */
         next = cur->next;
         if(strcmp(cur->job->status, "Done") == 0) {
             remove_node(cur->job->pid);
@@ -398,12 +399,14 @@ int builtin_jobs(void)
 }
 
 int builtin_history(void)
-{
-    // print linked list of commands
-    node *cur = history_head;
+{   
+    /*
+     * Traverse list of commands
+     */
+    histnode *cur = history_head;
     int i = 1;
     while(cur != NULL) {
-        printf("%d  %s\n", i, cur->job->full_command);
+        printf("%d  %s\n", i, cur->command);
         i++;
         cur = cur->next;
     }
@@ -413,16 +416,20 @@ int builtin_history(void)
 
 int builtin_wait(void)
 {
-    node *cur = jobs_head;
+    jobnode *cur = jobs_head;
 
+    /*
+     * No jobs in bg
+     */
     if(cur == NULL) {
         return 0;
     }
 
     while(cur != NULL) {
-        // wait
+        /*
+         *  Wait and then mark job as done
+         */
         waitpid(cur->job->pid, NULL, 0);
-        // mark as done
         cur->job->status = "Done";
         cur = cur->next;
     }
@@ -432,100 +439,177 @@ int builtin_wait(void)
 
 int builtin_fg(void)
 {
-    // wait on background job
-    // go to end of jobs list for most recent process
-    node *cur = jobs_head;
+    jobnode *cur = jobs_head;
+
+    /* 
+     * No jobs in bg
+     */
     if(cur == NULL) {
         fprintf(stderr, "--mysh: no such job!\n");
         return -1;
     }
 
+    /*
+     * Traverse list to get most recent backgrounded job
+     */
     while(cur->next != NULL) {
         cur = cur->next;
     }
 
-    // pass pid
+    /*
+     * Get pid of job to fg
+     */
     builtin_fg_num(cur->job->pid);
     return 0;
 }
 
 int builtin_fg_num(int job_num)
 {
-    // wait on pid
+    /*
+     * waitpid returns pid of child that exited
+     */
     if(waitpid(job_num, NULL, 0) > 0) {
-        // remove node from list
+        /*
+         *  Remove job from bg list
+         */
         remove_node(job_num);
         current_jobs_bg--;
         return 0;
     }
+
     fprintf(stderr, "--mysh: no such job!\n");
     return -1;
 }
 
-int insert_node(job_t *job, node **head) {
-    // make node
-    node *new = (node*)malloc(sizeof(node));
+int insert_job(job_t *job) {
+    /* 
+     * Create node
+     */
+    jobnode *new = (jobnode*)malloc(sizeof(jobnode));
     new->job = job;
     new->next = NULL;
     new->job->status = "Running";
 
-    // initialize
-    if(*head == NULL) {
-        *head = new;
-        //printf("First node\n");
+    /*
+     * Empty list
+     */
+    if(jobs_head == NULL) {
+        jobs_head = new;
     }
     else {
-        // get to end of linked list
-        node *cur = *head;
+        /*
+         * Go to end of list
+         */
+        jobnode *cur = jobs_head;
         while(cur->next != NULL) {
             cur = cur->next;
         }
 
-        // set pointer
+        /*
+         * Update
+         */
         cur->next = new;
-        //printf("Next node\n");
     }
 
-    if(*head == history_head) {
-        total_history++;
-    }
-    else if(*head == jobs_head) {
-        total_jobs_bg++;
-    }
-
+    total_jobs_bg++;
     return 0;
 }
 
+int insert_history(char *com) {
+    /*
+     * Create node
+     */
+    histnode *new = (histnode*)malloc(sizeof(histnode));
+    new->command = com;
+    new->next = NULL;
 
-int free_list(node **head) {
-    // go down list and free nodes
-    if(head != NULL) {
-        node *cur = *head;
-        node *next = NULL;
+    /*
+     * Empty list
+     */
+    if(history_head == NULL) {
+        history_head = new;
+    }
+    else {
+        /*
+         * Go to end of list
+         */
+        histnode *cur = history_head;
+        while(cur->next != NULL) {
+            cur = cur->next;
+        }
+
+        /*
+         * Update
+         */
+        cur->next = new;
+    }
+
+    total_history++;
+    return 0;
+}
+
+int free_jobs() {
+    /*
+     * Nonempty list
+     */
+    if(jobs_head != NULL) {
+        jobnode *cur = jobs_head;
+        jobnode *next = NULL;
 
         while(cur != NULL) {
+            /*
+             * Free and move on
+             */
             next = cur->next;
             free(cur->job);
             free(cur);
             cur = next;
         }
   
-        *head = NULL;
+        jobs_head = NULL;
+        next = NULL;
+    }
+    return 0;
+}
+
+
+int free_history() {
+    /*
+     * Nonempty list
+     */
+    if(history_head != NULL) {
+        histnode *cur = history_head;
+        histnode *next = NULL;
+
+        while(cur != NULL) {
+            /*
+             * Free and move on
+             */
+            next = cur->next;
+            free(cur);
+            cur = next;
+        }
+  
+        history_head = NULL;
         next = NULL;
     }
     return 0;
 }
 
 int remove_node(int job_num) {
-    // remove node
-    node *cur = jobs_head;
-    node *prev = NULL;
+    jobnode *cur = jobs_head;
+    jobnode *prev = NULL;
     
+    /*
+     * Nothing to remove
+     */
     if(cur == NULL) {
         return -1;
     }
 
-    // target is head
+    /*
+     * Target is head
+     */
     if(cur->job->pid == job_num) {
         jobs_head = cur->next;
         free(cur->job);
@@ -533,18 +617,24 @@ int remove_node(int job_num) {
         return 0;
     }
 
-    // find node
+    /*
+     * Traverse to find target
+     */
     while(cur != NULL && cur->job->pid != job_num) {
         prev = cur;
         cur = cur->next;
     }
 
-    // not found
+    /*
+     * Target not found
+     */
     if(cur == NULL) {
         return -1;
     }   
         
-    // set pointer, free
+    /*
+     * Update
+     */
     prev->next = cur->next;
     free(cur->job);
     free(cur);
@@ -552,20 +642,41 @@ int remove_node(int job_num) {
 }
 
 int check_bg() {
-    // check if any background jobs have completed
-    node *cur = jobs_head;
+    jobnode *cur = jobs_head;
     int status;
 
+    /*
+     * No jobs in background list
+     */
     if(cur == NULL) {
         return 0;
     }
 
+    /*
+     * Check all bg processes
+     * status will be the pid of the process if process is done
+     */
     while(cur != NULL) {
         status = waitpid(cur->job->pid, NULL, WNOHANG);
-        if(status != 0) {
-            cur->job->status = "Done";
+        if(status > 0) {
+            cur->job->status = "Done";   
+        }
+        else {
+            return -1;
         }
         cur = cur->next;
     }
     return 0;
+}
+
+int is_blank(char *line) {
+    /*
+     * Check if there are any non-space characters
+     */
+    for(int i = 0; i < strlen(line); i++) {
+        if(isspace(line[i]) == 0) {
+            return FALSE;
+        }
+    }
+    return TRUE;
 }

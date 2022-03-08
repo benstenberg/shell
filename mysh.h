@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 /* For fork, exec, sleep */
 #include <sys/types.h>
@@ -48,11 +49,17 @@ typedef struct job_t job_t;
 /*
  * Linked List Node
  */
-struct node {
+struct jobnode {
     job_t *job;
-    struct node *next;
+    struct jobnode *next;
 };
- typedef struct node node;
+ typedef struct jobnode jobnode;
+
+struct histnode {
+    char *command;
+    struct histnode *next;
+};
+ typedef struct histnode histnode;
 
 
 /******************************
@@ -82,8 +89,8 @@ int is_debug = TRUE;
 /*
  * Linked List of Jobs
  */
-node *history_head = NULL;
-node *jobs_head = NULL;
+histnode *history_head = NULL;
+jobnode *jobs_head = NULL;
 
 /******************************
  * Function declarations
@@ -209,16 +216,112 @@ int builtin_fg(void);
  */
 int builtin_fg_num(int job_num);
 
+/*
+ * Parses through input and takes appropriate action
+ *
+ * Parameters:
+ *   line: line to be parsed
+ *
+ * Returns:
+ *   0 on success
+ *   Negative value on error
+ */
 int parse_line(char *line);
 
+/*
+ * Builds job based on given command
+ *
+ * Parameters:
+ *   command: the command typed in
+ *
+ * Returns:
+ *   Built job struct
+ *   Negative value on error
+ */
 job_t* build_job(char *command);
 
-int insert_node(job_t *job, node **head);
+/*
+ * Insert jobnode into list
+ *
+ * Parameters:
+ *   job: job to be added
+ *
+ * Returns:
+ *   0 on success
+ *   Negative value on error
+ */
+int insert_job(job_t *job);
 
-int free_list(node **head);
+/*
+ * Insert histnode into list
+ *
+ * Parameters:
+ *   command: string to be added
+ *
+ * Returns:
+ *   0 on success
+ *   Negative value on error
+ */
+int insert_history(char *command);
 
+/*
+ * Free jobs list data structures
+ *
+ * Parameters:
+ *   none
+ *
+ * Returns:
+ *   0 on success
+ *   Negative value on error
+ */
+int free_jobs();
+
+/*
+ * Free history list data structures
+ *
+ * Parameters:
+ *   none
+ *
+ * Returns:
+ *   0 on success
+ *   Negative value on error
+ */
+int free_history();
+
+/*
+ * Remove jobnode from list
+ *
+ * Parameters:
+ *   job_num: pid of job to remove
+ *
+ * Returns:
+ *   0 on success
+ *   Negative value on error
+ */
 int remove_node(int job_num);
 
+/*
+ * Check jobs list for completed processes
+ *
+ * Parameters:
+ *   none
+ *
+ * Returns:
+ *   0 on success
+ *   Negative value on error
+ */
 int check_bg();
+
+/*
+ * Check if a string is all spaces
+ *
+ * Parameters:
+ *   line: string to check
+ *
+ * Returns:
+ *   0 on success
+ *   Negative value on error
+ */
+int is_blank(char *line);
 
 #endif /* MYSHELL_H */
