@@ -221,18 +221,19 @@ int interactive_mode(void)
 }
 
 int parse_line(char *line) {
+    char block[strlen(line)];
+    char tmp[strlen(line)];
+    char *save = NULL;
+    
     /*
      * Loop through all commands in line, separated by ;
      */
-    char block[strlen(line)];
-    char tmp[strlen(line)];
-    
-    char *save = NULL;
-    // split first on chunks separated by ;
     char *command = strtok_r(line, ";", &save);
 
     while(command != NULL) {
-        // within that chunk go until/if you find &
+        /*
+         * Within that chunk, look for &
+         */
         strcpy(block, command);
         strcpy(tmp, "");
 
@@ -242,61 +243,79 @@ int parse_line(char *line) {
                 strcpy(tmp, "");
             }
             else {
+                /*
+                 * Keep track of command up until & is found
+                 */
                 strncat(tmp, &block[i], 1);
             }
         }
 
-        // if there's something in temp still, run it
+        /*
+         * If there's still something in tmp, no & was found
+         */
         if(strcmp(tmp, "") != 0) {
             do_command(tmp, FALSE);
             strcpy(tmp, "");
         }
         
-        // next block
+        /*
+         *  Go to next block
+         */
         command = strtok_r(NULL, ";", &save);
     }
     return 0;
 }
 
 int do_command(char *command, int is_bg) {
+    char *args = NULL;
+
     if(strcmp(command, "exit") == 0) {
-            builtin_exit();
-            insert_history("exit");
-        }
-        else if(strcmp(command, "jobs") == 0) {
-            builtin_jobs();
-            insert_history("jobs");
-        }
-        else if(strcmp(command, "history") == 0) {
-            insert_history("history");
-            builtin_history();
-        }
-        else if(strcmp(command, "wait") == 0) {
-            builtin_wait();
-            insert_history("wait");
-        }
-        else if(strcmp(command, "fg") == 0) {
-            builtin_fg();
-            insert_history("fg");
-        }
-        else if(strncmp(command, "fg ", 3) == 0) {
-            char * args = strtok(strdup(command), " ");
-            args = strtok(NULL, " ");
-            builtin_fg_num(atoi(args));
-            insert_history(strdup(command));
-        }
-        else {
-            /*
-             * Build a job
-             */
-            job_t *job = build_job(command, is_bg);
+        builtin_exit();
+        insert_history("exit");
+    }
+    else if(strcmp(command, "jobs") == 0) {
+        builtin_jobs();
+        insert_history("jobs");
+    }
+    else if(strcmp(command, "history") == 0) {
+        insert_history("history");
+        builtin_history();
+    }
+    else if(strcmp(command, "wait") == 0) {
+        builtin_wait();
+        insert_history("wait");
+    }
+    else if(strcmp(command, "fg") == 0) {
+        builtin_fg();
+        insert_history("fg");
+    }
+    else if(strncmp(command, "fg ", 3) == 0) {
+        args = strtok(strdup(command), " ");
+        args = strtok(NULL, " ");
+        builtin_fg_num(atoi(args));
+        insert_history(strdup(command));
+    }
+    else {
+        /*
+         * Build a job
+         */
+        job_t *job = build_job(command, is_bg);
+        if(job != NULL) {
             insert_history(strdup(job->full_command));
             launch_job(job);
-        } 
+        }
+    } 
     return 0;
 }
 
 job_t* build_job(char *command, int is_bg) {
+    /*
+     * Sanity check
+     */
+    if(command == NULL || is_blank(command) == 1 || strcmp(command, "") == 0) {
+        return NULL;
+    }
+
     job_t *job = (job_t *)malloc(sizeof(job_t));
     char* copy = strdup(command);
     
@@ -585,6 +604,7 @@ int free_jobs() {
              * Free and move on
              */
             next = cur->next;
+            free(cur->job->argv);
             free(cur->job);
             free(cur);
             cur = next;

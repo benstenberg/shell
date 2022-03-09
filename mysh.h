@@ -84,7 +84,7 @@ int current_jobs_bg = 0;
 /*
  * Debugging mode
  */
-int is_debug = TRUE;
+int is_debug = FALSE;
 
 /*
  * Linked List of Jobs
@@ -229,14 +229,28 @@ int builtin_fg_num(int job_num);
 int parse_line(char *line);
 
 /*
+ * Will take a command and do the appropriate action
+ *
+ * Parameters:
+ *   command: command text to be executed
+ *   is_bg: if the command is to be in the background
+ *
+ * Returns:
+ *   0 on success
+ *   Negative value on error
+ */
+int do_command(char *command, int is_bg);
+
+/*
  * Builds job based on given command
  *
  * Parameters:
  *   command: the command typed in
+ *   is_bg: if the job to be built will be in the background
  *
  * Returns:
  *   Built job struct
- *   Negative value on error
+ *   Else NULL
  */
 job_t* build_job(char *command, int is_bg);
 
@@ -319,11 +333,10 @@ int check_bg();
  *   line: string to check
  *
  * Returns:
- *   0 on success
- *   Negative value on error
+ *   1 if true
+ *   0 if false
  */
 int is_blank(char *line);
 
-int do_command(char *command, int is_bg);
 
 #endif /* MYSHELL_H */
