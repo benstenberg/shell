@@ -1,0 +1,9 @@
+sleep 5 & sleep 3 & sleep 2 & sleep 10 &
+wait
+echo slept 10 seconds
+sleep 2 &
+wait
+echo slept 2 seconds
+echo now some extra calls
+wait
+wait

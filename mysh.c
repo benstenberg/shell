@@ -31,6 +31,10 @@ int main(int argc, char * argv[]) {
          * Get array of filenames
          */
         files = (char**)malloc((argc-1) * sizeof(char*));
+        if(files == NULL) {
+            printf("Error in allocating files.\n");
+            exit(-1);
+        }
         for(i = 0; i < argc-1; i++) {
             files[i] = argv[i+1];
         }
@@ -111,6 +115,15 @@ int batch_mode(char **files, int num_files)
     char str[MAX_COMMAND_LINE];
 
     /*
+     * Allocate buffer for reading input
+     */
+    buffer = (char *)malloc(buffersize * sizeof(char));
+    if(buffer == NULL) {
+        printf("Unable to allocate input buffer.\n");
+        return(-1);
+    }
+
+    /*
      * For each file...
      */
     for(i = 0; i < num_files; i++) {
@@ -125,25 +138,18 @@ int batch_mode(char **files, int num_files)
         }
 
         /*
-         * Allocate buffer for reading input
-        */
-        buffer = (char *)malloc(buffersize * sizeof(char));
-        if(buffer == NULL) {
-            printf("Unable to allocate input buffer.\n");
-            return(-1);
-        }
-
-        /*
          * Otherwise, 
          *   - Read one line at a time.
          *   - strip off new line
          *   - parse and execute
          */
         characters = getline(&buffer, &buffersize, infile);
-        while(characters != -1) {
+        while(characters != -1 && to_exit == FALSE) {
             if(is_blank(buffer) == FALSE) {
                 strcpy(str, buffer);
-                str[characters-1] = '\0';
+                if(str[characters-1] == '\n') {
+                    str[characters-1] = '\0';
+                }
                 buffer = strdup(str);
     
                 parse_line(buffer);
@@ -156,16 +162,19 @@ int batch_mode(char **files, int num_files)
          */
         fclose(infile);
     }
+    /*
+     * Wait for jobs to finish before exiting
+     */
     builtin_wait();
 
     /*
      * Cleanups
      */
     free(files);
+    free(buffer);
+    buffer = NULL;
     infile = NULL;
     files = NULL;
-    free_jobs();
-    free_history();
     return 0;
 }
 
@@ -195,6 +204,10 @@ int interactive_mode(void)
          * Read stdin, break out of loop if Ctrl-D
          */
         characters = getline(&buffer, &buffersize, stdin);
+        if(characters == -1) {
+            /* Ctrl-D */
+            break;
+        }
         if(characters == 0 || is_blank(buffer) == TRUE) {
             continue;
         }
@@ -207,7 +220,6 @@ int interactive_mode(void)
         /*
          * Parse and execute the command
          */
-         check_bg();
          parse_line(buffer);
 
     } while(to_exit == FALSE);
@@ -239,7 +251,7 @@ int parse_line(char *line) {
 
         for(int i = 0; i < strlen(command); i++) {
             if(block[i] == '&') {
-                do_command(tmp, TRUE);
+                do_command(trimwhitespace(tmp), TRUE);
                 strcpy(tmp, "");
             }
             else {
@@ -254,7 +266,7 @@ int parse_line(char *line) {
          * If there's still something in tmp, no & was found
          */
         if(strcmp(tmp, "") != 0) {
-            do_command(tmp, FALSE);
+            do_command(trimwhitespace(tmp), FALSE);
             strcpy(tmp, "");
         }
         
@@ -268,6 +280,13 @@ int parse_line(char *line) {
 
 int do_command(char *command, int is_bg) {
     char *args = NULL;
+
+    if(command == NULL) {
+        return -1;
+    }
+
+    /* Update bg list */
+    check_bg();
 
     if(strcmp(command, "exit") == 0) {
         builtin_exit();
@@ -317,6 +336,10 @@ job_t* build_job(char *command, int is_bg) {
     }
 
     job_t *job = (job_t *)malloc(sizeof(job_t));
+    if(job == NULL) {
+        printf("Error in allocating job.\n");
+        return NULL;
+    }
     char* copy = strdup(command);
     
     /*
@@ -349,9 +372,14 @@ job_t* build_job(char *command, int is_bg) {
      * Create argv
      */
     char **argv = (char**)malloc(sizeof(char*)*job->argc+1);
+    if(argv == NULL) {
+        printf("Error in allocating argv.\n");
+        return NULL;
+    }
+
     cur = strtok(copy, " ");
     for(int i = 0; i < job->argc; i++) {
-        argv[i] = strdup(cur);
+        argv[i] = strdup(trimwhitespace(cur));
         cur = strtok(NULL, " ");
     }
     argv[job->argc] = NULL;
@@ -425,15 +453,20 @@ int builtin_jobs(void)
     }
 
     while(cur != NULL) {
-        printf("[%d]  %s  %s\n", i, cur->job->status, cur->job->full_command);
+        printf("[%d]  %s", i, cur->job->status);
+        for(int i = 0; i < cur->job->argc; i++) {
+            printf(" %s", cur->job->argv[i]);
+        }
+        printf("\n");
         
         /*
          * Remove jobs once viewed
          */
         next = cur->next;
         if(strcmp(cur->job->status, "Done") == 0) {
-            remove_node(cur->job->pid);
-            //current_jobs_bg--;
+            if(-1 == remove_node(cur->job->pid)) {
+                printf("Couldn't remove job node!\n");
+            }
         }
         i++;
         cur = next;
@@ -460,6 +493,7 @@ int builtin_history(void)
 int builtin_wait(void)
 {
     jobnode *cur = jobs_head;
+    jobnode *next = NULL;
 
     /*
      * No jobs in bg
@@ -470,11 +504,15 @@ int builtin_wait(void)
 
     while(cur != NULL) {
         /*
-         *  Wait and then mark job as done
+         *  Wait and then remove
          */
         waitpid(cur->job->pid, NULL, 0);
-        cur->job->status = "Done";
-        cur = cur->next;
+        next = cur->next;
+        //cur->job->status = "Done";
+        if(-1 == remove_node(cur->job->pid)) {
+            printf("Couldn't remove job node!\n");
+        }
+        cur = next;
     }
 
     return 0;
@@ -483,9 +521,10 @@ int builtin_wait(void)
 int builtin_fg(void)
 {
     jobnode *cur = jobs_head;
+    jobnode *to_fg = NULL;
 
     /* 
-     * No jobs in bg
+     * No jobs to fg
      */
     if(cur == NULL) {
         fprintf(stderr, "--mysh: no such job!\n");
@@ -493,16 +532,25 @@ int builtin_fg(void)
     }
 
     /*
-     * Traverse list to get most recent backgrounded job
+     * Traverse list to get most recent backgrounded running job
      */
-    while(cur->next != NULL) {
+    while(cur != NULL) {
+        if(strcmp(cur->job->status, "Running") == 0) {
+            to_fg = cur;
+        }
         cur = cur->next;
     }
+
+    if(to_fg == NULL) {
+        fprintf(stderr, "--mysh: no such job!\n");
+        return -1;
+    }
+
 
     /*
      * Get pid of job to fg
      */
-    builtin_fg_num(cur->job->pid);
+    builtin_fg_num(to_fg->job->pid);
     return 0;
 }
 
@@ -515,7 +563,9 @@ int builtin_fg_num(int job_num)
         /*
          *  Remove job from bg list
          */
-        remove_node(job_num);
+        if(-1 == remove_node(job_num)) {
+            printf("Couldn't remove job node!\n");
+        }
         current_jobs_bg--;
         return 0;
     }
@@ -529,6 +579,10 @@ int insert_job(job_t *job) {
      * Create node
      */
     jobnode *new = (jobnode*)malloc(sizeof(jobnode));
+    if(new == NULL) {
+        printf("Error in allocating jobnode.\n");
+        return -1;
+    }
     new->job = job;
     new->next = NULL;
     new->job->status = "Running";
@@ -563,6 +617,10 @@ int insert_history(char *com) {
      * Create node
      */
     histnode *new = (histnode*)malloc(sizeof(histnode));
+    if(new == NULL) {
+        printf("Error in allocating histnode.\n");
+        return -1;
+    }
     new->command = com;
     new->next = NULL;
 
@@ -656,6 +714,7 @@ int remove_node(int job_num) {
      */
     if(cur->job->pid == job_num) {
         jobs_head = cur->next;
+        free(cur->job->argv);
         free(cur->job);
         free(cur);
         return 0;
@@ -680,6 +739,7 @@ int remove_node(int job_num) {
      * Update
      */
     prev->next = cur->next;
+    free(cur->job->argv);
     free(cur->job);
     free(cur);
     return 0;
@@ -706,9 +766,6 @@ int check_bg() {
             cur->job->status = "Done";
             current_jobs_bg--;   
         }
-        else {
-            return -1;
-        }
         cur = cur->next;
     }
     return 0;
@@ -724,4 +781,40 @@ int is_blank(char *line) {
         }
     }
     return TRUE;
+}
+
+
+
+char* trimwhitespace(char *str)
+{
+  char *cur;
+
+  /*
+   * If everything is whitespace, just return null
+   */
+  if(is_blank(str)) {
+    return NULL;
+  }
+
+  /*
+   * Leading whitespace: progress string until non-space character
+   */
+  while(isspace(*str)) {
+    str++;
+  }
+
+  /*
+   * Trailing whitespace: start at end and go until non-space character
+   */
+  cur = str + strlen(str) - 1;
+  while(isspace(*cur)) {
+    cur--;
+  }
+
+  /*
+   * Null terminator
+   */
+  cur[1] = '\0';
+
+  return str;
 }

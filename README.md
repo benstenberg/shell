@@ -30,9 +30,18 @@ any separation between file runs.
 
 ## How the software was tested
 
-TODO
+Within the tests directory, there are 5 txt files testing various elements of the shell. Listed are their names and purposes:
+       redir.txt -- Tests file redirection. Echos into a file, and uses that file as input for print.c.
+       fg-test.txt -- Tests the foreground functionality.
+       jobs-test.txt -- Tests the jobs functionality.
+       parsing-test.txt -- Provides messy commands to test the shell's parsing ability.
+       wait-test.txt -- Tests the wait functionality.
+print.c is a simple program created to test file redirection. Its executable is compiled in the name "print".
+These files are meant to be run in batch mode. It is also useful to run the commands in the files in interactive mode, manually.
+The test files have various echo commands to inform you on the current state of execution. 
 
 
 ## Known bugs and problem areas
 
 File redirection is not yet implemented.
+

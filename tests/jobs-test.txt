@@ -1,0 +1,14 @@
+echo sleeping 5, calling jobs 3 times
+sleep 5 &
+jobs
+sleep 5
+jobs
+jobs
+echo same thing in one line
+sleep 3 & jobs ; sleep 3 ; jobs ; jobs
+echo now adding a bunch of jobs
+sleep 3 & sleep 2 & sleep 5 & sleep 6 & jobs
+echo getting there...
+sleep 4 ; jobs
+echo done.
+sleep 4;jobs

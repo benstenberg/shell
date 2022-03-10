@@ -1,0 +1,15 @@
+sleep 3 &
+fg
+echo slept 3
+sleep 5 &
+fg
+echo slept 5
+sleep 10 & sleep 2 &
+fg
+fg
+echo slept 2 and 10
+echo now some extra calls
+fg
+fg
+fg
+fg

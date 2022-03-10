@@ -36,18 +36,18 @@
  * A job struct.  Feel free to change as needed.
  */
 struct job_t {
-    char * full_command;
+    char *full_command;
     int argc;
     char **argv;
     int is_background;
-    char * binary;
-    char *status;  // Running -> Done 
+    char *binary;
+    char *status;  /* Running -> Done */
     int pid;
 };
 typedef struct job_t job_t;
 
 /*
- * Linked List Node
+ * Linked List Nodes
  */
 struct jobnode {
     job_t *job;
@@ -112,7 +112,8 @@ int parse_args_main(int argc, char **argv);
  * Main routine for batch mode
  *
  * Parameters:
- *  None
+ *  files: filenames
+ *  num_files: total number of files
  *
  * Returns:
  *   0 on success
@@ -338,5 +339,16 @@ int check_bg();
  */
 int is_blank(char *line);
 
+/*
+ * Trim leading and trailing whitespace of string
+ *
+ * Parameters:
+ *   str: string to trim
+ *
+ * Returns:
+ *   trimmed string
+ *   NULL if error
+ */
+char* trimwhitespace(char *str);
 
 #endif /* MYSHELL_H */

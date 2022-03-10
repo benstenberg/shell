@@ -1,0 +1,4 @@
+echo putting text "Ben" into outfile
+echo Ben > outfile
+echo redirecting outfile into print program
+./print < outfile
