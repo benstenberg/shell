@@ -36,6 +36,7 @@ Within the tests directory, there are 5 txt files testing various elements of th
 - jobs-test.txt -- Tests the jobs functionality.
 - parsing-test.txt -- Provides messy commands to test the shell's parsing ability.
 - wait-test.txt -- Tests the wait functionality.
+
 print.c is a simple program created to test file redirection. Its executable is compiled in the name "print".
 These files can be run in batch mode by passing them in as arguments when running mysh. Or, you can run the commands in interactive
 mode by either typing them in manually, or by directing them into mysh like "./mysh < file.txt".
