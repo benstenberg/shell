@@ -7,7 +7,7 @@ Ben Stenberg
 
 ## Date:
 
-Last Modified: 3/9/2022
+Last Modified: 3/10/2022
 
 
 ## Description:
@@ -31,14 +31,14 @@ any separation between file runs.
 ## How the software was tested
 
 Within the tests directory, there are 5 txt files testing various elements of the shell. Listed are their names and purposes:
-       redir.txt -- Tests file redirection. Echos into a file, and uses that file as input for print.c.
-       fg-test.txt -- Tests the foreground functionality.
-       jobs-test.txt -- Tests the jobs functionality.
-       parsing-test.txt -- Provides messy commands to test the shell's parsing ability.
-       wait-test.txt -- Tests the wait functionality.
+- redir.txt -- Tests file redirection. Echos into a file, and uses that file as input for print.c.
+- fg-test.txt -- Tests the foreground functionality.
+- jobs-test.txt -- Tests the jobs functionality.
+- parsing-test.txt -- Provides messy commands to test the shell's parsing ability.
+- wait-test.txt -- Tests the wait functionality.
 print.c is a simple program created to test file redirection. Its executable is compiled in the name "print".
-These files are meant to be run in batch mode. It is also useful to run the commands in the files in interactive mode, manually.
-The test files have various echo commands to inform you on the current state of execution. 
+These files can be run in batch mode by passing them in as arguments when running mysh. Or, you can run the commands in interactive
+mode by either typing them in manually, or by directing them into mysh like "./mysh < file.txt".
 
 
 ## Known bugs and problem areas
